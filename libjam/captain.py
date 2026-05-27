@@ -23,68 +23,51 @@ def _get_class_commands(cls) -> dict[str: callable]:
 def _get_function_args(
   function: callable,
 ) -> tuple[list[str], list[str], str|None]:
-  """Returns parameters a given function accepts.
-
-  Return tuple format: `(required, optional, arbitary)`.
-  """
+  """Returns parameters a given function accepts."""
   code = function.__code__
-  if code.co_kwonlyargcount:
-    raise NotImplementedError(
-      'Keyword-only function arguments are not supported.'
-    )
   varnames = list(code.co_varnames)
   argcount = code.co_argcount
-  n_optional_args = len(function.__defaults__ or [])
-  n_required_args = argcount - n_optional_args
-  required_args = varnames[:n_required_args]
-  optional_args = varnames[n_required_args:n_optional_args + 1]
-  if code.co_flags & 0x04:
-    arbitrary_arg = varnames[argcount]
-  else:
-    arbitrary_arg = None
-  return required_args, optional_args, arbitrary_arg
+  n_optional = len(function.__defaults__ or [])
+  n_required = argcount - n_optional
+  required = varnames[:n_required]
+  optional = varnames[n_required : n_required+n_optional]
+  accepts_arbitrary = code.co_flags & 0x04
+  arbitrary = varnames[argcount] if accepts_arbitrary else None
+  return required, optional, arbitrary
 
 
-def _classify_args(args: list[str]) -> tuple[list, list, list]:
-  """Categorises arguments.
-
-  Return tuple format: (positional args, long options, short options)
-  """
-  # Vars
-  pos_args = []
-  long_opts = []
-  short_opts = []
-  # Categorising
-  for arg in args:
-    if arg.startswith('--'):
-      long_opts.append(arg.removeprefix('--'))
-    elif arg.startswith('-'):
-      short_opts += list(arg.removeprefix('-')) or ['']
+def _classify_args(items: list[str], /) -> tuple[list, list]:
+  """Categorises a list of strings into arguments and flags."""
+  args = []
+  flags = []
+  for i, item in enumerate(items):
+    if item == '--':
+      args += items[i+1 :]
+      break
+    elif item.startswith('--'):
+      flags.append(item)
+    elif item == '-':
+      flags.append(item)
+    elif item.startswith('-'):
+      flags += ['-' + i for i in list(item.removeprefix('-'))]
     else:
-      pos_args.append(arg)
-  # Returning
-  return pos_args, long_opts, short_opts
-
-
-def _to_posix_arg(arg: str) -> str:
-  return arg.replace('_', ' ').upper()
+      args.append(item)
+  return args, flags
 
 
 def _to_posix_args(
-  required_args: list,
-  optional_args: list = [],
-  arbitrary_arg: str = None,
+  required: list,
+  optional: list = [],
+  arbitrary: str = None,
 ) -> str:
   """Returns the POSIX-style representation of given arguments."""
-  required_args = [_to_posix_arg(arg) for arg in required_args]
-  optional_args = [_to_posix_arg(arg) for arg in optional_args]
-  required_args = [f'<{arg}>' for arg in required_args]
-  optional_args = [f'[{arg}]' for arg in optional_args]
-  all_args = required_args + optional_args
-  if arbitrary_arg:
-    arbitrary_arg = _to_posix_arg(arbitrary_arg)
-    arbitrary_arg = f'[{arbitrary_arg}]...'
-    all_args.append(arbitrary_arg)
+  def fmt(s: str, prefix: str, suffix: str) -> str:
+    return prefix + s.replace('_', ' ').upper() + suffix
+  required = [fmt(arg, '<', '>') for arg in required]
+  optional = [fmt(arg, '[', ']') for arg in optional]
+  all_args = required + optional
+  if arbitrary:
+    all_args.append(fmt(arbitrary, '[', ']...'))
   return ' '.join(all_args)
 
 
@@ -148,32 +131,24 @@ class Captain:
     }
     self.options.append(option)
 
-  def _parse_options(
-    self,
-    long_opts: list[str],
-    short_opts: list[str],
-  ) -> dict[str: bool]:
-    parsed_options = {}
-    for option in self.options:
-      parsed_options[option.get('key')] = False
-    for prefix, flag_type, given_opts in (
-      ('--', 'long', long_opts),
-      ('-', 'short', short_opts),
-    ):
-      for given_opt in given_opts:
-        found = None
-        for option in self.options:
-          flags = option.get(flag_type)
-          if given_opt in flags:
-            found = option
-            break
-        if found is None:
-          self.on_usage_error(f"unrecognised option '{prefix}{given_opt}'")
-        else:
-          parsed_options[found.get('key')] = True
-    return parsed_options
+  def _parse_flags(self, flags: list[str]) -> dict[str: bool]:
+    parsed = {}
+    flag_to_key = {}
+    for opt in self.options:
+      key = opt['key']
+      parsed[key] = False
+      for f in opt['long']:
+        flag_to_key['--' + f] = key
+      for f in opt['short']:
+        flag_to_key['-' + f] = key
+    for flag in flags:
+      key = flag_to_key.get(flag)
+      if not key:
+        self.on_usage_error(f"unknown option '{flag}'")
+      parsed[key] = True
+    return parsed
 
-  def parse(self, args: list[str] = sys.argv[1:]) -> tuple:
+  def parse(self, args: list[str] = None) -> tuple:
     """Parses `args`, or sys.argv if `args` is not specified.
 
     The function's return tuple dependends on the specified `ship` and whether
@@ -188,18 +163,20 @@ class Captain:
     options were added then the tuple will look like this
     `(function: callable, funtion_args: list, options: dict)`.
     """
-    # Categorising args
-    args, long_opts, short_opts = _classify_args(args)
+    # Classifying args
+    if args is None:
+      args = sys.argv[1:]
+    args, flags = _classify_args(args)
     # Parsing options and printing help if needed
     if self.add_help:
       self.add_option('help', ['help', 'h'], 'Prints this page')
-    parsed_options = self._parse_options(long_opts, short_opts)
+    opts = self._parse_flags(flags)
     if self.add_help:
-      if parsed_options.get('help'):
+      if opts['help']:
         self.print_help()
         exit_code = getattr(os, 'EX_OK', 0)
         sys.exit(exit_code)
-      parsed_options.pop('help')
+      opts.pop('help')
     # Getting chosen command
     ship_callable = callable(self.ship)
     if ship_callable:
@@ -239,13 +216,12 @@ class Captain:
     if n_args > n_required_args + n_optional_args and not arbitrary_arg:
       self.on_usage_error('too many arguments.', command)
     # Returning
-    return_list = []
     if not ship_callable:
-      return_list += [function, args]
+      return_list = [function, args]
     else:
-      return_list.append(args)
-    if parsed_options:
-      return_list.append(parsed_options)
+      return_list = [args]
+    if opts:
+      return_list.append(opts)
     if len(return_list) == 1:
       return return_list[0]
     return tuple(return_list)
