@@ -86,6 +86,7 @@ class _Option:
   name: str
   description: str|None
   shorthand: str|None
+  call: callable|None
 
   @property
   def flags(self):
@@ -125,6 +126,7 @@ class Captain:
     name: str,
     description: str = None,
     shorthand: str = None,
+    call: callable = None,
   ):
     """Adds an option to the CLI.
 
@@ -134,27 +136,33 @@ class Captain:
     The `description` parameter, if specified, is what will be shown in
     the help page beside the option's flags.
 
-    The `shorthand` parameter, if specified, must be 1 a character-long
-    string and it will be used to create the short flag for the CLI.
+    The `shorthand` parameter, if specified, will be used to create the
+    short flag for the CLI. Must be 1 a character-long string.
+
+    The `call` parameter, if specified, will be called from the `parse`
+    method, if the option was set by the user. The default help option
+    sets it to the `print_help_and_exit` method of `Captain`.
     """
     if shorthand:
       if len(shorthand) > 1:
         raise TypeError('Option shorthand must be 1 character long')
-    option = _Option(name, description, shorthand)
+    option = _Option(name, description, shorthand, call)
     self.options.append(option)
 
   def _parse_flags(self, flags: list[str]) -> dict[str: bool]:
     parsed = {}
-    flag_to_key = {}
+    flag_to_option = {}
     for option in self.options:
       parsed[option.name] = False
       for f in option.flags:
-        flag_to_key[f] = option.name
+        flag_to_option[f] = option
     for flag in flags:
-      key = flag_to_key.get(flag)
-      if not key:
+      option = flag_to_option.get(flag)
+      if not option:
         self.on_usage_error(f"unknown option '{flag}'")
-      parsed[key] = True
+      parsed[option.name] = True
+      if option.call:
+        option.call()
     return parsed
 
   def parse(self, args: list[str] = None) -> tuple:
@@ -172,20 +180,17 @@ class Captain:
     options were added then the tuple will look like this
     `(function: callable, funtion_args: list, options: dict)`.
     """
-    # Classifying args
+    # Categorising arguments
     if args is None:
       args = sys.argv[1:]
     args, flags = _classify_args(args)
-    # Parsing options and printing help if needed
+    # Parsing flags
     if self.add_help:
-      self.add_option('help', 'Prints this page.', 'h')
+      self.add_option(
+        'help', 'Prints this page.', 'h',
+        self.print_help_and_exit,
+      )
     opts = self._parse_flags(flags)
-    if self.add_help:
-      if opts['help']:
-        self.print_help()
-        exit_code = getattr(os, 'EX_OK', 0)
-        sys.exit(exit_code)
-      opts.pop('help')
     # Getting chosen command
     ship_callable = callable(self.ship)
     if ship_callable:
@@ -291,6 +296,14 @@ class Captain:
     ]
     # Printing
     print(section_separator.join(sections))
+
+  def print_help_and_exit(self):
+    """Prints the help page and calls `sys.exit` with the appropriate
+    exit code.
+    """
+    self.print_help()
+    exit_code = getattr(os, 'EX_OK', 0)
+    sys.exit(exit_code)
 
   def on_usage_error(self, message: str, command: str = None):
     """Prints the error message and calls `sys.exit` with the appropriate exit code."""
