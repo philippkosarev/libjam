@@ -1,4 +1,5 @@
 # Imports
+from dataclasses import dataclass
 import os
 import sys
 
@@ -80,6 +81,21 @@ def _dict_to_table(d: dict[str: str|None]) -> str:
   return writer.to_columns(items, 2, '', '')
 
 
+@dataclass
+class _Option:
+  name: str
+  description: str|None
+  shorthand: str|None
+
+  @property
+  def flags(self):
+    items = []
+    if self.shorthand:
+      items.append('-' + self.shorthand)
+    items.append('--' + self.name)
+    return items
+
+
 class Captain:
   """Creates a CLI around a given function or object.
 
@@ -104,43 +120,36 @@ class Captain:
     self.program = program
     self.options = []
 
-  def add_option(self, key: str, flags: list = [], desc: str = ''):
+  def add_option(
+    self,
+    name: str,
+    description: str = None,
+    shorthand: str = None,
+  ):
     """Adds an option to the CLI.
 
-    If the `flags` param is not specified then it will use the `key` as
-    a flag.
+    The `name` parameter will used as the key in the `dict` that the
+    `parse` method returns and to create the long flag for the CLI.
 
-    After parsing you will get an options dictionary where the provided
-    `key` will lead to either True (if one of the flags was provided by
-    the user) or False (if the user did not specify the option's flag).
+    The `description` parameter, if specified, is what will be shown in
+    the help page beside the option's flags.
+
+    The `shorthand` parameter, if specified, must be 1 a character-long
+    string and it will be used to create the short flag for the CLI.
     """
-    if not flags:
-      flags = [key]
-    long_flags = []
-    short_flags = []
-    for flag in flags:
-      if len(flag) == 1:
-        short_flags.append(flag)
-      else:
-        long_flags.append(flag)
-    option = {
-      'key': key,
-      'long': long_flags,
-      'short': short_flags,
-      'desc': desc,
-    }
+    if shorthand:
+      if len(shorthand) > 1:
+        raise TypeError('Option shorthand must be 1 character long')
+    option = _Option(name, description, shorthand)
     self.options.append(option)
 
   def _parse_flags(self, flags: list[str]) -> dict[str: bool]:
     parsed = {}
     flag_to_key = {}
-    for opt in self.options:
-      key = opt['key']
-      parsed[key] = False
-      for f in opt['long']:
-        flag_to_key['--' + f] = key
-      for f in opt['short']:
-        flag_to_key['-' + f] = key
+    for option in self.options:
+      parsed[option.name] = False
+      for f in option.flags:
+        flag_to_key[f] = option.name
     for flag in flags:
       key = flag_to_key.get(flag)
       if not key:
@@ -169,7 +178,7 @@ class Captain:
     args, flags = _classify_args(args)
     # Parsing options and printing help if needed
     if self.add_help:
-      self.add_option('help', ['help', 'h'], 'Prints this page')
+      self.add_option('help', 'Prints this page.', 'h')
     opts = self._parse_flags(flags)
     if self.add_help:
       if opts['help']:
@@ -271,10 +280,8 @@ class Captain:
     # Adding options
     options = {}
     for option in self.options:
-      long_flags = ['--' + flag for flag in option.get('long')]
-      short_flags = ['-' + flag for flag in option.get('short')]
-      flags = ', '.join(short_flags + long_flags)
-      options[flags] = option.get('desc')
+      flags = ', '.join(option.flags)
+      options[flags] = option.description
     options = _dict_to_table(options)
     sections.append(('Options', options))
     # Assembling sections
