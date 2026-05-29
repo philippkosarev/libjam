@@ -3,21 +3,18 @@ from dataclasses import dataclass
 import os
 import sys
 
-# Internal imports
-from . import writer
 
-
-# Internal functions
-def _get_class_commands(cls) -> dict[str: callable]:
+def _get_object_commands(obj: object) -> dict[str: callable]:
   """Returns a dictionary where a command name points to a function."""
   commands = {}
-  for key, value in cls.__dict__.items():
-    if key.startswith('_'):
+  for name in dir(obj):
+    if name.startswith('_'):
       continue
-    if not callable(value):
+    function = getattr(obj, name)
+    if not callable(function):
       continue
-    key = key.replace('_', '-').lower()
-    commands[key] = value
+    name = name.replace('_', '-').lower()
+    commands[name] = function
   return commands
 
 
@@ -72,13 +69,46 @@ def _to_posix_args(
   return ' '.join(all_args)
 
 
-def _dict_to_table(d: dict[str: str|None]) -> str:
-  """Creates a help page table from the given dictionary."""
-  items = []
-  for key, value in d.items():
-    value = ' - ' + value if value else ''
-    items += [key, value]
-  return writer.to_columns(items, 2, '', '')
+class _Table:
+  def __init__(self):
+    self.items: list[tuple[str, str|None]] = []
+
+  def add(self, key: str, value: str|None):
+    item = (key, value)
+    self.items.append(item)
+
+  def build(self) -> str:
+    max_key_len = max([len(i[0]) for i in self.items])
+    lines = []
+    for key, value in self.items:
+      if value:
+        line = f'{key:<{max_key_len}} - {value}'
+        lines.append(line)
+      else:
+        lines.append(key)
+    table = '\n'.join(lines)
+    return table
+
+
+class _HelpPage:
+  def __init__(self):
+    self.sections = []
+
+  def add_section(self, title: str|None, body: str|None):
+    if not body:
+      return
+    items = []
+    if title:
+      items.append(title + ':')
+      indent = ' ' * 3
+      body = indent + body.replace('\n', '\n' + indent)
+    items.append(body)
+    if items:
+      self.sections.append('\n'.join(items))
+
+  def build(self, compact: bool) -> str:
+    section_separator = '\n' if compact else '\n\n'
+    return section_separator.join(self.sections)
 
 
 @dataclass
@@ -202,7 +232,7 @@ class Captain:
           'no command specified.\n'
           f"Try '{self.program} --help' to view available commands."
         )
-      commands = _get_class_commands(type(self.ship))
+      commands = _get_object_commands(self.ship)
       command = args.pop(0)
       function = commands.get(command)
       if not function:
@@ -240,62 +270,62 @@ class Captain:
       return return_list[0]
     return tuple(return_list)
 
-  def print_help(self):
-    """Prints the help page."""
-    compact = self.compact_help
-    ship_callable = callable(self.ship)
-    if compact is None:
-      compact = True if ship_callable else False
-    section_separator = '\n' if compact else '\n\n'
-    sections: list[tuple[str|None, str]] = []
-    description = self.ship.__doc__
-    if ship_callable:
-      # Adding usage
-      usage = self.program + ' [OPTION]...'
+  def _add_options_to_help_page(self, help_page: _HelpPage):
+    table = _Table()
+    for option in self.options:
+      flags = ', '.join(option.flags)
+      table.add(flags, option.description)
+    text = table.build()
+    help_page.add_section('Options', text)
+
+  def build_help(self) -> str:
+    """Builds the help page."""
+    help_page = _HelpPage()
+    if callable(self.ship):
+      usage = [self.program]
+      if self.options or self.add_help:
+        usage.append('[OPTION]...')
       args = _to_posix_args(*_get_function_args(self.ship))
       if args:
-        usage += ' ' + args
-      sections.append(('Usage', usage))
-      # Adding description
-      sections.append(('Description', description))
+        usage.append(args)
+      usage = ' '.join(usage)
+      help_page.add_section('Usage', usage)
+      help_page.add_section('Description', self.ship.__doc__)
     else:
-      # Adding description
-      sections.append((None, description))
-      # Adding synopsis
-      synopsys = self.program + ' [OPTION]... COMMAND [ARGS]...'
-      sections.append(('Synopsis', synopsys))
+      help_page.add_section(None, self.ship.__doc__)
+      synopsis = [self.program]
+      if self.options or self.add_help:
+        synopsis.append('[OPTION]...')
+      synopsis.append('<COMMAND> ...')
+      synopsis = ' '.join(synopsis)
+      help_page.add_section('Synopsis', synopsis)
       # Adding commands
-      commands = _get_class_commands(type(self.ship))
-      commands_table = {}
-      for command, function in commands.items():
-        commands_table[command] = function.__doc__
-      commands_table = _dict_to_table(commands_table)
-      sections.append(('Commands', commands_table))
+      commands = _get_object_commands(self.ship)
+      commands_table = _Table()
+      for name, func in commands.items():
+        commands_table.add(name, func.__doc__)
+      commands_table = commands_table.build()
+      help_page.add_section('Commands', commands_table)
       # Adding usage
       usage = []
-      for command, function in commands.items():
-        args = _get_function_args(function)
+      for name, func in commands.items():
+        args = _get_function_args(func)
         args[0].pop(0) # Removing the `self` argument
         if not any(args):
           continue
         args = _to_posix_args(*args)
-        usage.append(f'{self.program} {command} {args}')
+        usage.append(' '.join([self.program, name, args]))
       usage = '\n'.join(usage)
-      sections.append(('Usage', usage))
+      help_page.add_section('Usage', usage)
     # Adding options
-    options = {}
-    for option in self.options:
-      flags = ', '.join(option.flags)
-      options[flags] = option.description
-    options = _dict_to_table(options)
-    sections.append(('Options', options))
-    # Assembling sections
-    sections = [
-      f"{title}:\n  {body.replace('\n', '\n  ')}" if title else body
-      for title, body in sections if body
-    ]
-    # Printing
-    print(section_separator.join(sections))
+    self._add_options_to_help_page(help_page)
+    if self.compact_help is None:
+      self.compact_help = callable(self.ship)
+    return help_page.build(self.compact_help)
+
+  def print_help(self):
+    """Prints the help page."""
+    print(self.build_help())
 
   def print_help_and_exit(self):
     """Prints the help page and calls `sys.exit` with the appropriate
