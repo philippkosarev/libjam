@@ -1,36 +1,16 @@
 Captain
 =======
 
-API
----
+Examples
+--------
 
-.. autoclass:: libjam.Captain
-
-
-Simple example
---------------
+Single-command CLI
+^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 ``example.py`` file:
 
-.. code-block::
-
-  from libjam import Captain
-
-  def shout(text: str):
-    'Shouts the given text back'
-    if opts.get('world'):
-      text += ' world'
-    print(text + '!')
-
-  captain = Captain(shout, program='shout')
-  captain.add_option(
-    'world', ['world', 'w'],
-    "Adds ' world' before the exclamation mark",
-  )
-  global opts
-  args, opts = captain.parse()
-  shout(*args)
-
+.. literalinclude:: singlecommand-example.py
+  :language: python
 
 Here is what the user will see when running this CLI:
 
@@ -38,6 +18,7 @@ Here is what the user will see when running this CLI:
 
   $ ./example.py
   shout: missing argument <TEXT>
+  Try 'shout --help' for more information.
 
   $ ./example.py Hello
   Hello!
@@ -49,7 +30,65 @@ Here is what the user will see when running this CLI:
   Usage:
     shout [OPTION]... <TEXT>
   Description:
-    Shouts the given text back
+    Shouts the given text back.
   Options:
-    -w, --world - Adds ' world' before the exclamation mark
-    -h, --help  - Prints this page
+    -w, --world - Adds ' world' before the exclamation mark.
+    -h, --help  - Prints this page.
+
+
+Multi-command CLI
+^^^^^^^^^^^^^^^^^^^^^^^^^
+
+``example.py`` file:
+
+.. literalinclude:: multicommand-example.py
+  :language: python
+
+Here is what the user will see when running this CLI:
+
+.. code-block::
+
+  $ ./example.py
+  very-smart-ai: no command specified.
+  Try 'very-smart-ai --help' for more information.
+
+  $ ./example.py shout "I like crisps"
+  I like crisps!
+
+  $ ./example.py wonder -h
+  Usage:
+     very-smart-ai wonder
+  Description:
+     Where's my copy of My weekend in Stevenage by Filthy Henderson?
+  Options:
+         --mcbeth - Ponder whether to be or not to be.
+     -q --quiet   - Be quiet.
+     -h --help    - Prints this page.
+
+  $ ./example.py wonder --mcbeth
+  I just want to be a fish.
+
+  $ ./example.py --help
+  Trust me, it's the smartest one out there.
+
+  Synopsis:
+     very-smart-ai <COMMAND> ...
+
+  Commands:
+     shout   - I will be loud!
+     whisper - Shhhh! You don't want them to hear you...
+     wonder  - Where's my copy of My weekend in Stevenage by Filthy Henderson?
+
+  Usage:
+     shout <TEXT> [SUFFIX]
+     whisper [LINES]...
+     wonder
+
+  Options:
+     -h --help - Prints this page.
+
+
+API
+---
+
+.. automodule:: libjam.captain

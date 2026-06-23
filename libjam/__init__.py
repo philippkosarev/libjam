@@ -5,7 +5,7 @@ Docs: https://libjam.readthedocs.io
 PyPi: https://pypi.org/project/libjam
 """
 
-from .captain import Captain
+from .captain import Captain, captain
 from .secretary import Secretary
 from . import writer
 from . import flashcard

@@ -2,36 +2,49 @@
 from dataclasses import dataclass
 import os
 import sys
+import types
 
 
-def _get_object_commands(obj: object) -> dict[str: callable]:
-  """Returns a dictionary where a command name points to a function."""
-  commands = {}
-  for name in dir(obj):
-    if name.startswith('_'):
-      continue
-    function = getattr(obj, name)
-    if not callable(function):
-      continue
-    name = name.replace('_', '-').lower()
-    commands[name] = function
-  return commands
+# Constants
+_DEFAULT_NAME = os.path.basename(sys.argv[0])
 
 
 def _get_function_args(
   function: callable,
 ) -> tuple[list[str], list[str], str|None]:
-  """Returns parameters a given function accepts."""
+  """Returns the function's parameters."""
   code = function.__code__
   varnames = list(code.co_varnames)
   argcount = code.co_argcount
+  n_opts = code.co_kwonlyargcount
   n_optional = len(function.__defaults__ or [])
   n_required = argcount - n_optional
+  if code.co_flags & 0x08:
+    n_optional -= n_opts
+    n_required -= n_opts
   required = varnames[:n_required]
   optional = varnames[n_required : n_required+n_optional]
-  accepts_arbitrary = code.co_flags & 0x04
-  arbitrary = varnames[argcount] if accepts_arbitrary else None
+  if code.co_flags & 0x04:
+    arbitrary = varnames[argcount + n_opts]
+  else:
+    arbitrary = None
   return required, optional, arbitrary
+
+
+def _to_posix_args(
+  required: list,
+  optional: list = [],
+  arbitrary: str = None,
+) -> str:
+  """Returns the POSIX-style representation of given arguments."""
+  def fmt(s: str, prefix: str, suffix: str) -> str:
+    return prefix + s.replace('_', ' ').upper() + suffix
+  required = [fmt(arg, '<', '>') for arg in required]
+  optional = [fmt(arg, '[', ']') for arg in optional]
+  all_args = required + optional
+  if arbitrary:
+    all_args.append(fmt(arbitrary, '[', ']...'))
+  return ' '.join(all_args)
 
 
 def _classify_args(items: list[str], /) -> tuple[list, list]:
@@ -53,31 +66,19 @@ def _classify_args(items: list[str], /) -> tuple[list, list]:
   return args, flags
 
 
-def _to_posix_args(
-  required: list,
-  optional: list = [],
-  arbitrary: str = None,
-) -> str:
-  """Returns the POSIX-style representation of given arguments."""
-  def fmt(s: str, prefix: str, suffix: str) -> str:
-    return prefix + s.replace('_', ' ').upper() + suffix
-  required = [fmt(arg, '<', '>') for arg in required]
-  optional = [fmt(arg, '[', ']') for arg in optional]
-  all_args = required + optional
-  if arbitrary:
-    all_args.append(fmt(arbitrary, '[', ']...'))
-  return ' '.join(all_args)
-
-
 class _Table:
+  """Helps create tables."""
+
   def __init__(self):
     self.items: list[tuple[str, str|None]] = []
 
   def add(self, key: str, value: str|None):
+    """Adds a value and/or key to the table."""
     item = (key, value)
     self.items.append(item)
 
   def build(self) -> str:
+    """Builds itself and returns a string."""
     max_key_len = max([len(i[0]) for i in self.items])
     lines = []
     for key, value in self.items:
@@ -91,13 +92,16 @@ class _Table:
 
 
 class _HelpPage:
+  """Helps create help pages."""
+
   def __init__(self):
     self.sections = []
 
-  def add_section(self, title: str|None, body: str|None):
+  def add(self, title: str|None, body: str|None):
+    """Adds a section to the help page."""
+    items = []
     if not body:
       return
-    items = []
     if title:
       items.append(title + ':')
       indent = ' ' * 3
@@ -107,6 +111,7 @@ class _HelpPage:
       self.sections.append('\n'.join(items))
 
   def build(self, compact: bool) -> str:
+    """Builds itself and returns a string."""
     section_separator = '\n' if compact else '\n\n'
     return section_separator.join(self.sections)
 
@@ -128,28 +133,134 @@ class _Option:
 
 
 class Captain:
-  """Creates a CLI around a given function or object.
+  """Creates a CLI around a given function or class.
 
-  If the `program` is not specified, then `sys.argv[0]` will be used to
+  The `ship` can be either a function, to make a single-command CLI, or
+  a class, to make a multi-command CLI. Its docstring will be used as
+  the CLI's description, shown on the help page.
+
+  If the `ship` is a function, then its parameters will be used to
+  create the CLI's arguments. Supports required, optional and arbitrary
+  parameters.
+
+  If the `ship` is a class, then its attributes will be used to create
+  the CLI's commands. The `ship`'s attributes can be either other
+  `Captain`s, functions or classes. If the attribute is a function or a
+  class, then a new `Captain` will be created using that attribute; the
+  name of this new captain will be set to the parent `Captain`'s name
+  plus the name of the attribute, as it appears within the class, with
+  a space in the middle. For example, if the parent `Captain`'s name is
+  "hello" and the function's name, as it appears in the class, is
+  "world", then the name for the new `Captain` created from that
+  function will be "hello world". However, if the attribute is already
+  a `Captain` then it's name will remain unchanged. All new `Captain`s
+  created by this `Captain`, will be added to this `Captain`, under the
+  name of the attribute, as it appeared in the class, plus "_command".
+  This is done to improve ease of access, for example to enabled adding
+  options to these created `Captain`s. This is not done for attributes
+  which were already `Captain`s.
+
+  If the `name` is not specified, then `sys.argv[0]` will be used to
   determine the name of the program.
+
+  The `compact_help` parameter decides whether the help page sections
+  should be separated by one or two newlines. If not specified, then it
+  will be set to `False` if the specified `ship` is a function, and
+  `True` if it's a class.
+
+  To run the CLI, call it.
+
+  Example single-command CLI:
+  ```
+  from libjam import Captain
+  import sys
+
+  def echo(text, **options):
+    if options['world']:
+      text += ' world!'
+    print(echo)
+
+  cli = Captain(echo)
+  cli.add_option('world', 'Appends " world!"', 'w')
+
+  if __name__ == '__main__':
+    sys.exit(cli())
+  ```
+
+  Example multi-command CLI:
+  ```
+  from libjam import Captain
+  import sys
+
+  class express:
+    def sadness(**opts):
+      print("I'm sad")
+
+    def happiness(*, help=False):
+      print("I'm happy")
+
+  cli = Captain(express)
+
+  if __name__ == '__main__':
+    sys.exit(cli())
+  ```
   """
+
   def __init__(
     self,
-    ship: object or callable,
-    program: str = None,
-    *,
+    ship: callable or type,
+    name: str = None,
     add_help: bool = True,
     compact_help: bool = None,
   ):
-    if type(ship) is type:
-      raise ValueError(f"Specified ship '{ship.__name__}' is not initialised")
     self.ship = ship
-    self.add_help = add_help
+    self.name = name or _DEFAULT_NAME
+    self.description = ship.__doc__
     self.compact_help = compact_help
-    if program is None:
-      program = os.path.basename(sys.argv[0])
-    self.program = program
     self.options = []
+    self.add_help = add_help
+    if add_help:
+      self.add_option(
+        'help', 'Prints this page.', 'h',
+        self.print_help_and_exit,
+      )
+    if isinstance(ship, types.FunctionType):
+      self._singlecommand_init()
+    elif isinstance(ship, type):
+      self._multicommand_init()
+    else:
+      raise TypeError(f'Invalid ship type {type(ship)}')
+
+  def _singlecommand_init(self):
+    self._function_args = _get_function_args(self.ship)
+    usage = _to_posix_args(*self._function_args)
+    self.usage = f'[OPTIONS]... {usage}' if self.options else usage
+    self._parse = self._singlecommand_parse
+    self._build_help = self._build_singlecommand_help
+    if self.compact_help is None:
+      self.compact_help = True
+
+  def _multicommand_init(self):
+    self.usage = '<COMMAND> ...'
+    self._parse = self._multicommand_parse
+    self._build_help = self._build_multicommand_help
+    if self.compact_help is None:
+      self.compact_help = False
+    self.commands = {}
+    for name, attr in self.ship.__dict__.items():
+      if name.startswith('_'):
+        continue
+      command_name = name.replace('_', '-')
+      if isinstance(attr, (types.FunctionType, type)):
+        command = Captain(attr, f'{self.name} {command_name}')
+        setattr(self, name + '_command', command)
+        self.commands[command_name] = command
+      elif isinstance(attr, Captain):
+        self.commands[command_name] = attr
+      else:
+        raise TypeError(f'Given class has an invalid attribute {attr}')
+    if not self.commands:
+      raise TypeError('Given class cannot be empty')
 
   def add_option(
     self,
@@ -163,21 +274,29 @@ class Captain:
     The `name` parameter will used as the key in the `dict` that the
     `parse` method returns and to create the long flag for the CLI.
 
-    The `description` parameter, if specified, is what will be shown in
-    the help page beside the option's flags.
+    The `description` parameter, if specified, will be shown in the
+    help page, after the option's flags.
 
     The `shorthand` parameter, if specified, will be used to create the
-    short flag for the CLI. Must be 1 a character-long string.
+    short flag for the CLI. It must be 1 a character-long string.
 
-    The `call` parameter, if specified, will be called from the `parse`
-    method, if the option was set by the user. The default help option
-    sets it to the `print_help_and_exit` method of `Captain`.
+    The `call` parameter, if specified, will be called during parsing.
+    If the option was set by the user. The default help option sets it
+    to the `print_help_and_exit` method of the `Captain`.
+
+    When running the CLI, the option will be passed as a keyword
+    argument to the appropriate function.
     """
+    if len(name) < 2:
+      raise TypeError('Option name must contain at least 2 characters')
     if shorthand:
       if len(shorthand) > 1:
         raise TypeError('Option shorthand must be 1 character long')
     option = _Option(name, description, shorthand, call)
-    self.options.append(option)
+    if self.add_help:
+      self.options.insert(-1, option)
+    else:
+      self.options.append(option)
 
   def _parse_flags(self, flags: list[str]) -> dict[str: bool]:
     parsed = {}
@@ -189,139 +308,119 @@ class Captain:
     for flag in flags:
       option = flag_to_option.get(flag)
       if not option:
-        self.on_usage_error(f"unknown option '{flag}'")
+        self.usage_error(f"unknown option '{flag}'")
       parsed[option.name] = True
       if option.call:
         option.call()
     return parsed
 
-  def parse(self, args: list[str] = None) -> tuple:
-    """Parses `args`, or sys.argv if `args` is not specified.
+  def _singlecommand_parse(self, args: list[str]):
+    args, flags = _classify_args(args)
+    opts = self._parse_flags(flags)
+    required, optional, arbitrary = self._function_args
+    n_required = len(required)
+    n_optional = len(optional)
+    n_args = len(args)
+    if n_args < n_required:
+      missing_args = required[n_args:]
+      missing_args = _to_posix_args(missing_args)
+      self.usage_error('missing arguments ' + missing_args)
+    if n_args > n_required + n_optional and not arbitrary:
+      self.usage_error('too many arguments.')
+    return self, args, opts
 
-    The function's return tuple dependends on the specified `ship` and whether
-    any options were added.
+  def _multicommand_parse(self, args: list[str]):
+    flags = []
+    for i, arg in enumerate(args):
+      if arg.startswith('-'):
+        flags.append(arg)
+      else:
+        command_name = arg
+        args = args[i+1 :]
+        break
+    else:
+      command_name = None
+      args = []
+    local_opts = self._parse_flags(flags)
+    if not command_name:
+      self.usage_error('no command specified.')
+    command = self.commands.get(command_name)
+    if not command:
+      self.usage_error(f"unknown command '{command_name}'")
+    command, args, opts = command._parse(args)
+    for key, value in local_opts.items():
+      opts.setdefault(key, value)
+    return (command, args, opts)
 
-    If the specified `ship` was a function then the returned tuple will look
-    like `(funtion_args: list,)`. If, however, any options were added, then
-    return tuple will be `(funtion_args: list, options: dict)`.
+  def __call__(self, args: list[str] = None) -> any:
+    """Runs the CLI.
 
-    If the specified `ship` was an initialised object, then the output will
-    be `(function: callable, funtion_args: list)`. And, naturally, if any
-    options were added then the tuple will look like this
-    `(function: callable, funtion_args: list, options: dict)`.
+    If `args` is not specified, then `sys.argv[1:]` will be used.
     """
-    # Categorising arguments
     if args is None:
       args = sys.argv[1:]
-    args, flags = _classify_args(args)
-    # Parsing flags
-    if self.add_help:
-      self.add_option(
-        'help', 'Prints this page.', 'h',
-        self.print_help_and_exit,
-      )
-    opts = self._parse_flags(flags)
-    # Getting chosen command
-    ship_callable = callable(self.ship)
-    if ship_callable:
-      function = self.ship
-      command = None
-    else:
-      if not args:
-        self.on_usage_error(
-          'no command specified.\n'
-          f"Try '{self.program} --help' to view available commands."
-        )
-      commands = _get_object_commands(self.ship)
-      command = args.pop(0)
-      function = commands.get(command)
-      if not function:
-        available_commands = ', '.join(commands.keys())
-        self.on_usage_error(
-          f"command '{command}' not recognised.\n"
-          f'Available commands: {available_commands}'
-        )
-    # Checking arguments
-    required_args, optional_args, arbitrary_arg = _get_function_args(function)
-    n_required_args = len(required_args)
-    n_optional_args = len(optional_args)
-    if not ship_callable:
-      if not required_args:
-        function_name = function.__name__
-        class_name = type(self.ship).__name__
-        raise ValueError(
-          f"Function '{function_name}' of '{class_name}' is missing "
-          "the `self` parameter"
-        )
-      args.insert(0, self.ship)
-    n_args = len(args)
-    if n_args < n_required_args:
-      self.on_missing_arguments(required_args[n_args:])
-    if n_args > n_required_args + n_optional_args and not arbitrary_arg:
-      self.on_usage_error('too many arguments.', command)
-    # Returning
-    if not ship_callable:
-      return_list = [function, args]
-    else:
-      return_list = [args]
-    if opts:
-      return_list.append(opts)
-    if len(return_list) == 1:
-      return return_list[0]
-    return tuple(return_list)
+    command, args, opts = self._parse(args)
+    return command.ship(*args, **opts)
+
+  def usage_error(self, *lines: str):
+    """Prints an error message to stderr and calls `sys.exit` with the
+    appropriate exit code.
+    """
+    lines = list(lines)
+    lines.append(f"Try '{self.name} --help' for more information.")
+    text = f'{self.name}: ' + '\n'.join(lines)
+    print(text, file=sys.stderr)
+    exit_code = getattr(os, 'EX_USAGE', 64)
+    sys.exit(exit_code)
 
   def _add_options_to_help_page(self, help_page: _HelpPage):
     table = _Table()
     for option in self.options:
-      flags = ', '.join(option.flags)
+      flags = option.flags
+      if len(flags) > 1:
+        flags = ', '.join(flags)
+      else:
+        flags = '    ' + flags[0]
       table.add(flags, option.description)
     text = table.build()
-    help_page.add_section('Options', text)
+    help_page.add('Options', text)
+
+  def _build_singlecommand_help(self) -> str:
+    help_page = _HelpPage()
+    # Usage
+    help_page.add('Usage', f'{self.name} {self.usage}')
+    # Description
+    if self.description:
+      help_page.add('Description', self.description)
+    # Options
+    self._add_options_to_help_page(help_page)
+    return help_page.build(self.compact_help)
+
+  def _build_multicommand_help(self) -> str:
+    help_page = _HelpPage()
+    # Description
+    if self.description:
+      help_page.add(None, self.description)
+    # Synopsis
+    help_page.add('Synopsis', f'{self.name} {self.usage}')
+    # Commands
+    commands = _Table()
+    for name, command in self.commands.items():
+      commands.add(name, command.description)
+    commands = commands.build()
+    help_page.add('Commands', commands)
+    # Usage
+    usage = {k: v.usage for k, v in self.commands.items()}
+    if any(usage.values()):
+      usage = '\n'.join([f'{k} {v}' for k, v in usage.items()])
+      help_page.add('Usage', usage)
+    # Options
+    self._add_options_to_help_page(help_page)
+    return help_page.build(self.compact_help)
 
   def build_help(self) -> str:
     """Builds the help page."""
-    help_page = _HelpPage()
-    if callable(self.ship):
-      usage = [self.program]
-      if self.options or self.add_help:
-        usage.append('[OPTION]...')
-      args = _to_posix_args(*_get_function_args(self.ship))
-      if args:
-        usage.append(args)
-      usage = ' '.join(usage)
-      help_page.add_section('Usage', usage)
-      help_page.add_section('Description', self.ship.__doc__)
-    else:
-      help_page.add_section(None, self.ship.__doc__)
-      synopsis = [self.program]
-      if self.options or self.add_help:
-        synopsis.append('[OPTION]...')
-      synopsis.append('<COMMAND> ...')
-      synopsis = ' '.join(synopsis)
-      help_page.add_section('Synopsis', synopsis)
-      # Adding commands
-      commands = _get_object_commands(self.ship)
-      commands_table = _Table()
-      for name, func in commands.items():
-        commands_table.add(name, func.__doc__)
-      commands_table = commands_table.build()
-      help_page.add_section('Commands', commands_table)
-      # Adding usage
-      usage = []
-      for name, func in commands.items():
-        args = _get_function_args(func)
-        args[0].pop(0) # Removing the `self` argument
-        if not any(args):
-          continue
-        args = _to_posix_args(*args)
-        usage.append(' '.join([self.program, name, args]))
-      usage = '\n'.join(usage)
-      help_page.add_section('Usage', usage)
-    # Adding options
-    self._add_options_to_help_page(help_page)
-    if self.compact_help is None:
-      self.compact_help = callable(self.ship)
-    return help_page.build(self.compact_help)
+    return self._build_help()
 
   def print_help(self):
     """Prints the help page."""
@@ -335,23 +434,30 @@ class Captain:
     exit_code = getattr(os, 'EX_OK', 0)
     sys.exit(exit_code)
 
-  def on_usage_error(self, message: str, command: str = None):
-    """Prints the error message and calls `sys.exit` with the appropriate exit code."""
-    items = [f'{self.program}:']
-    if command:
-      items.append(f'{command}:')
-    items.append(message)
-    message = ' '.join(items)
-    print(message, file=sys.stderr)
-    exit_code = getattr(os, 'EX_USAGE', 64)
-    sys.exit(exit_code)
 
-  def on_missing_arguments(self, args: list, command: str = None):
-    """Prints the missing arguments and returns the appropriate exit code."""
-    n_args = len(args)
-    args = _to_posix_args(args)
-    message = 'missing argument'
-    if n_args != 1:
-      message += 's'
-    message += ': ' + args
-    return self.on_usage_error(message, command)
+def captain(
+  name: str = None,
+  add_help: bool = True,
+  compact_help: bool = None,
+) -> callable:
+  """Returns a decorator that takes either a function or a class and
+  returns a `Captain`.
+
+  Example usage:
+  ```
+  @captain(name='echo')
+  def cli(text):
+    print(text)
+  ```
+  """
+  def decorator(ship) -> Captain:
+    nonlocal name
+    if not name:
+      name = ship.__name__.lower()
+      for suffix in ['captain', 'command', 'cli']:
+        name = name.removesuffix(suffix).removesuffix('_')
+      name = name.replace('_', '-')
+    if not name:
+      name = _DEFAULT_NAME
+    return Captain(ship, name, add_help, compact_help)
+  return decorator
