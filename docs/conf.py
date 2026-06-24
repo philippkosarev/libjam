@@ -42,10 +42,18 @@ html_theme_options = {
   'collapse_navigation': False,
   'pygments_light_style': 'gruvbox-light',
   'pygments_dark_style': 'zenburn',
+  'icon_links': [
+    {
+      'name': 'GitHub',
+      'url': 'https://github.com/philippkosarev/libjam',
+      'icon': 'fa-brands fa-github',
+      'type': 'fontawesome',
+    },
+  ]
 }
 
-# Hooks
-def docstring(app, what, name, obj, options, lines):
+# Hooks and directives
+def process_docstring(app, what, name, obj, options, lines):
   """Converts markdown docstrings to ReST."""
   md  = '\n'.join(lines)
   rst = pypandoc.convert_text(md, 'rst', 'markdown')
@@ -53,4 +61,4 @@ def docstring(app, what, name, obj, options, lines):
 
 # Connecting hooks
 def setup(app):
-  app.connect('autodoc-process-docstring', docstring)
+  app.connect('autodoc-process-docstring', process_docstring)

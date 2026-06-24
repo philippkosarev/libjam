@@ -61,7 +61,7 @@ Here is what the user will see when running this CLI:
   Description:
      Where's my copy of My weekend in Stevenage by Filthy Henderson?
   Options:
-         --mcbeth - Ponder whether to be or not to be.
+        --mcbeth - Ponder whether to be or not to be.
      -q --quiet   - Be quiet.
      -h --help    - Prints this page.
 
@@ -91,4 +91,6 @@ Here is what the user will see when running this CLI:
 API
 ---
 
-.. automodule:: libjam.captain
+.. autoclass:: libjam.Captain
+
+.. autofunction:: libjam.captain

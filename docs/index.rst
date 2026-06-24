@@ -3,9 +3,13 @@ https://github.com/philippkosarev/libjam
 libjam
 ======
 
-A Python library that makes it easier to create better CLIs and provides some missing pieces for file management.
+A jam of Python libraries.
 
-Here is a quick overview of what each module/class does:
+
+Overview
+--------
+
+Here is a quick overview of each module/class in libjam:
 
 - The :doc:`captain` class provides a boilerplate-free way of creating CLIs.
 - The :doc:`secretary` class is just another program configuration system.
@@ -18,16 +22,18 @@ Here is a quick overview of what each module/class does:
 Installing
 ----------
 
-libjam is available on `PyPi <https://pypi.org/project/libjam/>`_ and can be installed using pip:
+Releases are available on `PyPi <https://pypi.org/project/libjam/>`_ and can be installed using pip:
 
 .. code-block:: sh
 
   pip install libjam
 
 
-API Overview
-------------
+Table of contents
+-----------------
+
 .. toctree::
+  :maxdepth: 2
 
   captain
   secretary

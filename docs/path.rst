@@ -1,45 +1,35 @@
 Path
 ====
 
-API
----
+Example
+-------
 
-.. autoclass:: libjam.Path
-
-
-Example CLI for extracting archives
------------------------------------
-
-``extract.py`` file:
+Here is an example CLI for extracting archives:
 
 .. code-block::
 
-  #! /usr/bin/env python3
-
-  # Imports
-  from libjam import Captain, writer, Path
+  from libjam import captain, writer, Path
   import sys
 
-  # Main function
-  def extract(archive: str, out_directory: str):
-    archive = Path(archive)
-    out_directory = Path(out_directory)
+  @captain()
+  def cli(archive, out_directory, **opts):
+    archive, out_directory = Path(archive), Path(out_directory)
     # Validating input
     if not archive.exists():
-      captain.on_usage_error('file not found.')
+      cli.usage_error(f'{archive}: no such file or directory.')
     if not archive.is_file():
-      captain.on_usage_error('given archive is not a file.')
+      cli.usage_error(f'{archive}: not a file.')
     if not archive.can_unpack():
-      captain.on_usage_error('unsupported archive type.')
+      cli.usage_error(f'{archive}: unsupported filetype.')
     # Extracting
     with writer.ProgressBar(f"Extracting '{archive.name}'") as bar:
       archive.unpack_with_progress(out_directory, bar.update)
 
-  # Running
-  def main():
-    captain = Captain(extract)
-    args = captain.parse()
-    return extract(*args)
-
   if __name__ == '__main__':
-    sys.exit(main())
+    sys.exit(cli())
+
+
+API
+---
+
+.. autoclass:: libjam.Path

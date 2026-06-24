@@ -1,7 +1,6 @@
 Secretary
 =========
 
-
 Example
 -------
 
@@ -73,3 +72,4 @@ API
 .. autoclass:: libjam.Secretary
 
 .. autoclass:: libjam.File
+  :show-inheritance:

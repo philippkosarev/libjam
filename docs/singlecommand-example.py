@@ -4,7 +4,7 @@ from libjam import captain
 
 # Creating the CLI
 @captain()
-def shout(text: str, *, world=False):
+def shout(text: str, *, world=False, help=False):
   """Shouts the given text back."""
   if world:
     text += ' world'
@@ -17,7 +17,7 @@ shout.add_option(
 )
 
 # Running the CLI
-shout()
+returned = shout()
 
-# This assertion will succeed, but run the CLI a second time
-assert shout() == 'anything'
+# This assertion will succeed
+assert returned == 'anything'
