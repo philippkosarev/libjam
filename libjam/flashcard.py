@@ -27,13 +27,20 @@ def select(
   prompt: str,
   items: list[str],
   prompt_style: callable = writer.bold,
-) -> str or None:
-  """Asks the user to select one item from a list."""
+) -> str|None:
+  """Asks the user to select one item from a list.
+
+  Returns `None` if the user decides to abort.
+
+  The `prompt_style` is called to finalise the prompt. By default it's
+  set to `writer.bold`, but can either be set to `None`, or any other
+  callable object (e.g. a function).
+  """
   # Creating the prompt
   n_items = len(items)
   prompt = f'{prompt} (1-{n_items}, 0 to abort): '
   if prompt_style:
-    prompt_style(prompt)
+    prompt = prompt_style(prompt)
   # Printing available items
   items = [f'{i}) {item}' for i, item in enumerate(items, start=1)]
   items = writer.to_columns(items)
