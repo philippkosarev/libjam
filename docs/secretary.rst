@@ -1,15 +1,13 @@
 Secretary
 =========
 
-API
----
-.. autoclass:: libjam.Secretary
 
+Example
+-------
 
-Example configuration for a program
------------------------------------
+Here is an example of how a CLI download manager might use Secretary for its configuration.
 
-``config.py`` file:
+``cli_config.py`` file:
 
 .. code-block::
 
@@ -38,23 +36,20 @@ Example configuration for a program
   # Validating values
   downloads_dir = config.get('downloads-directory')
   if not downloads_dir:
-    config.on_error(
+    config.error(
       'Could not automatically find an existing Downloads directory.',
       "Please specify the 'downloads-directory' manually.",
     )
   downloads_dir = Path(downloads_dir)
   if not downloads_dir.is_dir():
-    config.on_error("The specified 'downloads-directory' does not exist.")
+    config.error("The specified 'downloads-directory' does not exist.")
 
 
-``cli.py`` file:
+``main_cli.py`` file:
 
 .. code-block::
 
-  #! /usr/bin/env python3
-
-  # Internal imports
-  from .config import downloads_dir
+  from .cli_config import downloads_dir
   from .download_manager import DownloadManager
 
   download_manager = DownloadManager(downloads_dir)
@@ -67,6 +62,14 @@ Example error:
 .. code-block::
 
   $ python -m download_manager.cli
-  Configuration error in /home/philipp/.config/download-manager/config.toml:
+  Configuration error in ~/.config/download-manager/config.toml:
   Could not automatically find an existing Downloads directory.
   Please specify the 'downloads-directory' manually.
+
+
+API
+---
+
+.. autoclass:: libjam.Secretary
+
+.. autoclass:: libjam.File
