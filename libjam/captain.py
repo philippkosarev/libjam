@@ -370,16 +370,21 @@ class Captain:
     command, args, opts = self._parse(args)
     return command.ship(*args, **opts)
 
+  def error(self, exit_code: int, *lines: str):
+    """Prints an error message to stderr and calls `sys.exit` with the
+    given exit code.
+    """
+    text = f'{self.name}: ' + '\n'.join(lines)
+    print(text, file=sys.stderr)
+    sys.exit(exit_code)
+
   def usage_error(self, *lines: str):
     """Prints an error message to stderr and calls `sys.exit` with an
     appropriate exit code.
     """
-    lines = list(lines)
-    lines.append(f"Try '{self.name} --help' for more information.")
-    text = f'{self.name}: ' + '\n'.join(lines)
-    print(text, file=sys.stderr)
+    lines += (f"Try '{self.name} --help' for more information.",)
     exit_code = getattr(os, 'EX_USAGE', 64)
-    sys.exit(exit_code)
+    self.error(exit_code, *lines)
 
   def _add_options_to_help_page(self, help_page: _HelpPage):
     table = _Table()
