@@ -42,9 +42,9 @@ def select(
   if prompt_style:
     prompt = prompt_style(prompt)
   # Printing available items
-  items = [f'{i}) {item}' for i, item in enumerate(items, start=1)]
-  items = writer.to_columns(items)
-  print(items + '\n')
+  text = [f'{i}) {item}' for i, item in enumerate(items, start=1)]
+  text = writer.to_columns(text)
+  print(text + '\n')
   # Getting user input
   while True:
     choice = input(prompt).strip()
