@@ -168,6 +168,10 @@ class Captain:
   will be set to `False` if the specified `ship` is a function, and
   `True` if it's a class.
 
+  The `child_kwargs` dictionary is passed as keyword arguments to
+  children `Captain`s created by this `Captain` (only applies if the
+  given `ship` is a class).
+
   To run the CLI, call it.
 
   Example single-command CLI:
@@ -212,6 +216,7 @@ class Captain:
     name: str = None,
     add_help: bool = True,
     compact_help: bool = None,
+    child_kwargs: dict = {},
   ):
     self.ship = ship
     self.name = name or _DEFAULT_NAME
@@ -219,6 +224,7 @@ class Captain:
     self.compact_help = compact_help
     self.options = []
     self.add_help = add_help
+    self.child_kwargs = child_kwargs
     if add_help:
       self.add_option(
         'help', 'Prints this page.', 'h',
@@ -252,7 +258,9 @@ class Captain:
         continue
       command_name = name.replace('_', '-')
       if isinstance(attr, (types.FunctionType, type)):
-        command = Captain(attr, f'{self.name} {command_name}')
+        command = Captain(
+          attr, f'{self.name} {command_name}', **self.child_kwargs,
+        )
         setattr(self, name + '_command', command)
         self.commands[command_name] = command
       elif isinstance(attr, Captain):
@@ -363,7 +371,7 @@ class Captain:
     return command.ship(*args, **opts)
 
   def usage_error(self, *lines: str):
-    """Prints an error message to stderr and calls `sys.exit` with the
+    """Prints an error message to stderr and calls `sys.exit` with an
     appropriate exit code.
     """
     lines = list(lines)
@@ -439,6 +447,7 @@ def captain(
   name: str = None,
   add_help: bool = True,
   compact_help: bool = None,
+  child_kwargs: dict = {},
 ) -> callable:
   """Returns a decorator that takes either a function or a class and
   returns a `Captain`.
@@ -459,5 +468,5 @@ def captain(
       name = name.replace('_', '-')
     if not name:
       name = _DEFAULT_NAME
-    return Captain(ship, name, add_help, compact_help)
+    return Captain(ship, name, add_help, compact_help, child_kwargs)
   return decorator
