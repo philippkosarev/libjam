@@ -1,7 +1,7 @@
 [project]
 name = "libjam"
-description = "A Python library that makes it easier to create better CLIs and provides some missing pieces for file management."
-version = "0.1.9"
+description = "A jam of Python libraries."
+version = "0.2.0"
 
 readme = "README.md"
 license = "GPL-2.0"
