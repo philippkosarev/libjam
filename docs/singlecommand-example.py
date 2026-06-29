@@ -4,7 +4,7 @@ from libjam import captain
 
 # Creating the CLI
 @captain()
-def shout(text: str, *, world=False, help=False):
+def shout(text: str, *, world=False):
   """Shouts the given text back."""
   if world:
     text += ' world'

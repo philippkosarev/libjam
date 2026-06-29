@@ -293,7 +293,7 @@ class Captain:
     to the `print_help_and_exit` method of the `Captain`.
 
     When running the CLI, the option will be passed as a keyword
-    argument to the appropriate function.
+    argument to the appropriate function, if it can accept it.
     """
     if len(name) < 2:
       raise TypeError('Option name must contain at least 2 characters')
@@ -369,6 +369,10 @@ class Captain:
       if args is None:
         args = sys.argv[1:]
       command, args, opts = self._parse(args)
+      accepts_arbitrary_kwargs = command.ship.__code__.co_flags & 0x08
+      if not accepts_arbitrary_kwargs:
+        kwargs = command._function_args[1]
+        opts = {k: v for k, v in opts.items() if k in kwargs}
       return command.ship(*args, **opts)
     except KeyboardInterrupt:
       print('^C', file=sys.stderr)

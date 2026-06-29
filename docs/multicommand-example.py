@@ -10,21 +10,21 @@ import sys
 class cli:
   "Trust me, it's the smartest one out there."
 
-  def shout(text, suffix=None, *, help=False):
+  def shout(text, suffix=None):
     """I will be loud!"""
     text += '!'
     if suffix:
       text += suffix
     print(text)
 
-  def whisper(*lines, **opts):
+  def whisper(*lines):
     """Shhhh! You don't want them to hear you..."""
     lines = [l + '...' for l in lines]
     text = '\n'.join(lines)
     print(text)
 
   def wonder(**opts):
-    """Where's my copy of My weekend in Stevenage by Filthy Henderson?"""
+    """Where's my copy of My Weekend in Stevenage by Filthy Henderson?"""
     if opts['mcbeth']:
       print("I just want to be a fish.")
     elif opts['quiet']:
