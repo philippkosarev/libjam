@@ -56,7 +56,11 @@ def to_columns(
   n_items = len(items)
   # Calculating n_columns
   if not n_columns:
-    available_width = os.get_terminal_size()[0] - len(prefix)
+    try:
+      term_width = os.get_terminal_size()[0]
+    except OSError:
+      return '\n'.join(items)
+    available_width = term_width - len(prefix)
     n_columns = 1
     for i in range(2, n_items + 2):
       selected_items = items_by_len[:i]
@@ -96,7 +100,7 @@ class CSICommand(collections.UserString):
   def __init__(self, s: str):
     self.data = f'{CSI}{s}'
 
-  def __add__(self, other):
+  def __add__(self, other) -> str:
     return self.data + other
 
 
@@ -212,23 +216,26 @@ class StatusBar:
     self.status = status
 
   def _build(self):
-    term_width = os.get_terminal_size()[0]
+    term_width = os.get_terminal_size(sys.stderr.fileno())[0]
     return clear_page_from_cursor + self.status[:term_width] + '\r'
 
   def update(self, status: str = None):
     """Updates the status bar."""
     if status is not None:
       self.status = status
-    eprint(self._build(), True)
+    if os.isatty(sys.stderr.fileno()):
+      eprint(self._build(), True)
 
   def __enter__(self):
-    hide_input()
-    eprint(hide_cursor + self._build(), True)
+    if os.isatty(sys.stderr.fileno()):
+      hide_input()
+      eprint(hide_cursor + self._build(), True)
     return self
 
   def __exit__(self, *exc):
-    eprint(clear_page_from_cursor + show_cursor, True)
-    show_input()
+    if os.isatty(sys.stderr.fileno()):
+      eprint(clear_page_from_cursor + show_cursor, True)
+      show_input()
 
 
 class ProgressBar:
@@ -262,13 +269,13 @@ class ProgressBar:
     self._bar = StatusBar(self._build())
 
   def _build(self) -> str:
+    available_width = os.get_terminal_size(sys.stderr.fileno())[0]
     # Calculating the progress float
     try:
       progress_float = self._done / self._todo
       progress_float = min(max(progress_float, 0), 1)
     except ZeroDivisionError:
       progress_float = 0
-    available_width = os.get_terminal_size()[0]
     items = []
     # Printing the status
     items.append(self.status)
@@ -302,7 +309,8 @@ class ProgressBar:
       self._done = done
     if todo is not None:
       self._todo = todo
-    self._bar.update(self._build())
+    if os.isatty(sys.stderr.fileno()):
+      self._bar.update(self._build())
 
   def __enter__(self):
     self._bar.__enter__()
