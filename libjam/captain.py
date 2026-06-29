@@ -172,6 +172,10 @@ class Captain:
   children `Captain`s created by this `Captain` (only applies if the
   given `ship` is a class).
 
+  The `pass_self` parameter can be set to `True` if you want your
+  function to get the `Captain` that was created using it as its first
+  argument when running.
+
   To run the CLI, call it.
 
   Example single-command CLI:
@@ -214,6 +218,7 @@ class Captain:
     self,
     ship: callable or type,
     name: str = None,
+    pass_self: bool = False,
     add_help: bool = True,
     compact_help: bool = None,
     child_kwargs: dict = {},
@@ -221,6 +226,7 @@ class Captain:
     self.ship = ship
     self.name = name or _DEFAULT_NAME
     self.description = ship.__doc__
+    self.pass_self = pass_self
     self.compact_help = compact_help
     self.options = []
     self.add_help = add_help
@@ -239,6 +245,11 @@ class Captain:
 
   def _singlecommand_init(self):
     self._function_args = _get_function_args(self.ship)
+    if self.pass_self:
+      try:
+        self._function_args[0].pop(0)
+      except IndexError:
+        raise TypeError(f'{self.ship} is missing the `self` argument')
     usage = _to_posix_args(*self._function_args)
     self.usage = f'[OPTIONS]... {usage}' if self.options else usage
     self._parse = self._singlecommand_parse
@@ -373,6 +384,8 @@ class Captain:
       if not accepts_arbitrary_kwargs:
         kwargs = command._function_args[1]
         opts = {k: v for k, v in opts.items() if k in kwargs}
+      if command.pass_self:
+        args.insert(0, command)
       return command.ship(*args, **opts)
     except KeyboardInterrupt:
       print('^C', file=sys.stderr)
@@ -458,6 +471,7 @@ class Captain:
 
 def captain(
   name: str = None,
+  pass_self: bool = False,
   add_help: bool = True,
   compact_help: bool = None,
   child_kwargs: dict = {},
@@ -481,5 +495,7 @@ def captain(
       name = name.replace('_', '-')
     if not name:
       name = _DEFAULT_NAME
-    return Captain(ship, name, add_help, compact_help, child_kwargs)
+    return Captain(
+      ship, name, pass_self, add_help, compact_help, child_kwargs,
+    )
   return decorator
