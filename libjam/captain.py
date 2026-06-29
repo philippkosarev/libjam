@@ -365,10 +365,14 @@ class Captain:
 
     If `args` is not specified, then `sys.argv[1:]` will be used.
     """
-    if args is None:
-      args = sys.argv[1:]
-    command, args, opts = self._parse(args)
-    return command.ship(*args, **opts)
+    try:
+      if args is None:
+        args = sys.argv[1:]
+      command, args, opts = self._parse(args)
+      return command.ship(*args, **opts)
+    except KeyboardInterrupt:
+      print('^C', file=sys.stderr)
+      sys.exit(130)
 
   def error(self, exit_code: int, *lines: str):
     """Prints an error message to stderr and calls `sys.exit` with the
